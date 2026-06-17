@@ -1,0 +1,78 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: taskly_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-taskly}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-taskly_secret}
+      POSTGRES_DB: ${DB_NAME:-taskly_db}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-taskly}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: taskly_redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: taskly_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-taskly}
+      DB_PASSWORD: ${DB_PASSWORD:-taskly_secret}
+      DB_NAME: ${DB_NAME:-taskly_db}
+      JWT_SECRET: ${JWT_SECRET:-change_this_in_production_please}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change_this_refresh_secret}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '4000:4000'
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: taskly_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:4000/api}
+      VITE_SOCKET_URL: ${VITE_SOCKET_URL:-http://localhost:4000}
+    ports:
+      - '3000:3000'
+
+volumes:
+  postgres_data:
